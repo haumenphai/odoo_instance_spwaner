@@ -1,0 +1,85 @@
+# This file only is used with docker compose
+FROM ubuntu:20.04
+
+# Generate locale C.UTF-8 for postgres and general locale data
+ENV LANG C.UTF-8
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install some deps, lessc and less-plugin-clean-css,
+RUN apt-get update && apt-get install -y python3-dev libxml2-dev libxslt1-dev \
+    libldap2-dev libsasl2-dev libtiff5-dev \
+    libjpeg8-dev libopenjp2-7-dev zlib1g-dev \
+    libfreetype6-dev liblcms2-dev libwebp-dev \
+    libharfbuzz-dev libfribidi-dev libxcb1-dev \
+    libpq-dev python3.8-dev \
+    build-essential python3-virtualenv python3.8-venv \
+    python3-distutils python3-apt
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        dirmngr \
+        fonts-noto-cjk \
+        gnupg \
+        libssl-dev \
+        node-less \
+        npm \
+        python3-num2words \
+        python3-pdfminer \
+        python3-pip \
+        python3-phonenumbers \
+        python3-pyldap \
+        python3-qrcode \
+        python3-renderpm \
+        python3-setuptools \
+        python3-slugify \
+        python3-vobject \
+        python3-watchdog \
+        python3-xlrd \
+        python3-xlwt \
+        xz-utils
+
+
+# install latest postgresql-client
+RUN echo 'deb http://apt.postgresql.org/pub/repos/apt/ bullseye-pgdg main' > /etc/apt/sources.list.d/pgdg.list \
+    && GNUPGHOME="$(mktemp -d)" \
+    && export GNUPGHOME \
+    && repokey='B97B0AFCAA1A47F044F244A07FCC7D46ACCC4CF8' \
+    && gpg --batch --keyserver keyserver.ubuntu.com --recv-keys "${repokey}" \
+    && gpg --batch --armor --export "${repokey}" > /etc/apt/trusted.gpg.d/pgdg.gpg.asc \
+    && gpgconf --kill all \
+    && rm -rf "$GNUPGHOME" \
+    && apt-get update  \
+    && apt-get install --no-install-recommends -y postgresql-client \
+    && rm -f /etc/apt/sources.list.d/pgdg.list \
+    && rm -rf /var/lib/apt/lists/*
+
+## install odoo instance dotd15
+ENV python_venv_path=/opt/python3.8-venv/odoo15/bin/python3.8
+WORKDIR /opt/odoo/{instance_name}
+
+
+# Install python venv and odoo requirements
+RUN apt-get install -y python3.8-venv
+RUN python3.8 -m venv /opt/python3.8-venv/odoo15
+RUN $python_venv_path -m pip install setuptools wheel
+
+RUN $python_venv_path -m pip install -r https://raw.githubusercontent.com/odoo/odoo/15.0/requirements.txt
+
+# install custom addons.
+{script_install_custom_addons}
+
+
+# Expose Odoo services
+EXPOSE 8069 8071 8072
+
+# something is override by docker compose
+ENV DB_HOST='localhost'
+ENV DB_PORT=5432
+ENV DB_USER='none'
+ENV DB_PASSWORD='none'
+ENV odoo_config_path='none'
+ENV odoo_bin_path=/opt/odoo/odoo15/odoo-bin
+ENV odoo_config_path=/opt/odoo/odoo.conf
+
+CMD $python_venv_path $odoo_bin_path -c $odoo_config_path --db_host=$DB_HOST --db_port=$DB_PORT --db_password=$DB_PASSWORD --db_user=$DB_USER

@@ -1,0 +1,6 @@
+/odoo15/containers_data
+/odoo15/build
+
+.idea
+*.py[co]
+__pycache__/
