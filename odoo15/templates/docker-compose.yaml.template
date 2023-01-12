@@ -1,14 +1,14 @@
 services:
-  postgresql:
+  {psql_db_host}:
     image: postgres:14
     hostname: psql-compose-{instance_name}
     container_name: psql_compose_{instance_name}
     user: root
     environment:
-      - POSTGRES_USER=odoo
-      - POSTGRES_PASSWORD=odoo15@2021
+      - POSTGRES_USER={psql_db_user}
+      - POSTGRES_PASSWORD={psql_db_password}
       - POSTGRES_DB=postgres
-    restart: always             # run as a service
+    restart: always             # auto start
     volumes:
       - ../containers_data/psql_data:/var/lib/postgresql/data
 
@@ -18,15 +18,17 @@ services:
     container_name: odoo_{instance_name}
     user: root
     depends_on:
-      - postgresql
+      - {psql_db_host}
     ports:
-      - "{http_port_mapping}:8069" # http port
-      - "{long_polling_port_mapping}:8072" # long-polling port
+      - "{http_port_mapping}:8069"
+      - "{long_polling_port_mapping}:8072"
+    restart: always             # auto start
     volumes:
-      - {odoo_source_path}:/opt/odoo/odoo15:ro
-      - ../containers_data/odoo_filestore:/opt/odoo/file_store
-      - ../containers_data/odoo.conf:/opt/odoo/odoo.conf:ro
+      - {odoo_source_path}:{odoo_installation_dir}/odoo15:ro
+      - ../containers_data/odoo_filestore:{odoo_installation_dir}/file_store
+      - ../containers_data/odoo.conf:{odoo_installation_dir}/odoo.conf:ro
+      - ../containers_data/odoo.log:{odoo_installation_dir}/odoo.log
     environment:
-      - DB_HOST=postgresql
-      - DB_USER=odoo
-      - DB_PASSWORD=odoo15@2021
+      - DB_HOST={psql_db_host}
+      - DB_USER={psql_db_user}
+      - DB_PASSWORD={psql_db_password}

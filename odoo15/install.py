@@ -1,85 +1,159 @@
-import json
+#! /usr/bin/python3
+
+import argparse
 import os
-import shutil
-
-install_config = False
-container_custom_addons_path = []
-build_custom_addons_path = []
+import builder
 
 
-def get_install_config():
-    with open('install_config.json', 'r') as f:
-        txt_json = f.read()
-        return json.loads(txt_json)
+installed_data = builder.get_install_data()
+odoo_container_name = installed_data.get('odoo_container_name')
+psql_container_name = installed_data.get('psql_container_name')
 
 
-def build_custom_dockerfile():
-    os.system('rm -rf build/custom_addons')
-
-    script_install_custom_addons = ""
-    for custom_addon_path in install_config['custom_addons_path']:
-        addon_name = custom_addon_path.split('/')[-1]
-        container_addon_path = f"/opt/odoo/{install_config['instance_name']}/custom_addons/{addon_name}"
-        container_custom_addons_path.append(container_addon_path)
-
-        build_custom_addon_path = f'build/custom_addons/{addon_name}'
-        docker_context_addon_path = f'custom_addons/{addon_name}'
-        shutil.copytree(custom_addon_path, build_custom_addon_path)
-        build_custom_addons_path.append(build_custom_addon_path)
-
-        script_install_custom_addons +=  \
-            f"RUN mkdir -m 770 -p {container_addon_path}\n" \
-            f"COPY {docker_context_addon_path} {container_addon_path}\n"
-
-        requirement_path = os.path.join(docker_context_addon_path, 'requirements.txt')
-        if os.path.exists(requirement_path):
-            script_install_custom_addons += f"RUN $python_venv_path -m pip install -r {requirement_path}\n"
-
-    with open('templates/Dockerfile.template', 'r') as f:
-        dockerfile_txt = f.read().replace('{instance_name}', install_config['instance_name']) \
-                                 .replace('{script_install_custom_addons}', script_install_custom_addons)
-        with open('build/Dockerfile', 'w') as f2:
-            f2.write(dockerfile_txt)
+def docker_compose_up():
+    os.system(f'docker compose --file build/docker-compose.yaml up -d')
 
 
-def build_custom_odoo_config():
-    with open('templates/odoo.conf.template', 'r') as f:
-        _odoo_config_txt = ""
-        for k, v in install_config['container_odoo_config'].items():
-            _odoo_config_txt += f"{k} = {v}\n"
-
-        odoo_config = f.read().replace('{addons_path}', ','.join(container_custom_addons_path) + ',/opt/odoo/odoo15/addons') \
-                              .replace('{odoo_config}', _odoo_config_txt)
-
-        with open('containers_data/odoo.conf', 'w') as f2:
-            f2.write(odoo_config)
+def docker_compose_down():
+    os.system(f'docker compose --file build/docker-compose.yaml down')
 
 
-def build_custom_docker_image():
-    os.system(f'cd build && docker build -t odoo_{install_config["instance_name"]} .')
+def start_odoo():
+    os.system(f'docker start {odoo_container_name}')
 
 
-def build_custom_docker_compose_file():
-    with open('templates/docker-compose.yaml.template', 'r') as f:
-        docker_compose_file = f.read().format(
-            instance_name=install_config['instance_name'],
-            docker_image='odoo_' + install_config['instance_name'],
-            http_port_mapping=install_config['http_port_mapping'],
-            long_polling_port_mapping=install_config['long_polling_port_mapping'],
-            odoo_source_path=install_config['odoo_source_path'],
-        )
-        with open('build/docker-compose.yaml', 'w') as f2:
-            f2.write(docker_compose_file)
+def stop_odoo():
+    os.system(f'docker stop {odoo_container_name}')
 
 
-def clear_temp_files():
-    os.system('rm -rf build/custom_addons')
+def restart_odoo():
+    os.system(f'docker restart {odoo_container_name}')
+
+
+def start_psql():
+    os.system(f'docker start {psql_container_name}')
+
+
+def stop_psql():
+    os.system(f'docker stop {psql_container_name}')
+
+
+def restart_postgresql():
+    os.system(f'docker restart {psql_container_name}')
+
+
+def disable_auto_start():
+    os.system(f'docker update --restart=no {psql_container_name} {odoo_container_name}')
+
+
+def enable_auto_start():
+    os.system(f'docker update --restart=always {psql_container_name} {odoo_container_name}')
+
+
+def upgrade_modules(modules, db_name):
+    odoo_log_path = f'{builder.CONTAINER_DATA_DIR}/odoo.conf'
+    with open(odoo_log_path, 'r') as f:
+        old_config = f.read()
+    with open(odoo_log_path, 'w') as f:
+        new_text = ""
+        for line in old_config.split('\n'):
+            if 'logfile' not in line:
+                new_text += line + '\n'
+        f.write(new_text)
+
+    cmd = f'docker exec {odoo_container_name} {builder.PYTHON_VENV_PATH} ' \
+          f'{builder.ODOO_BIN_PATH} -c /opt/odoo/odoo.conf ' \
+          f'--db_host={builder.PSQL_DB_HOST} --db_user={builder.PSQL_DB_USER} --db_password={builder.PSQL_DB_PASS} ' \
+          f'--http-port 12234 -d {db_name} -u {",".join(modules)} --stop-after-init '
+    os.system(cmd)
+
+    with open(odoo_log_path, 'w') as f:
+        f.write(old_config)
+
+
+def deploy_nginx_site():
+    def _set_nginx_hosts():
+        with open('/etc/hosts', 'r') as f1:
+            new_text = "127.0.0.1       nginx\n"
+            old_text = f1.read()
+            if new_text in old_text:
+                return
+
+            new_text += old_text
+            with open('/etc/hosts', 'w') as f2:
+                f2.write(new_text)
+    _set_nginx_hosts()
+
+    nginx_config_file_name = f'{builder.install_config["instance_fqdn"]}.conf'
+    os.system(f'sudo cp build/{nginx_config_file_name}  /etc/nginx/sites-available/')
+    os.system(f'sudo ln -sf /etc/nginx/sites-available/{nginx_config_file_name} /etc/nginx/sites-enabled/{nginx_config_file_name}')
+    os.system('sudo service nginx restart')
+
+
+def clear_odoo_log():
+    os.system(f'echo "" > {builder.CONTAINER_DATA_DIR}/odoo.log')
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        prog="Install Odoo use docker compose.",
+        description="Install and interact with Odoo.",
+        epilog="Text at the bottom of help"
+    )
+
+    parser.add_argument('-b', '--build', action='store_true')
+
+    parser.add_argument('--start_odoo', action='store_true', help='Start Odoo')
+    parser.add_argument('--stop_odoo', help='Stop Odoo', action='store_true')
+    parser.add_argument("-ro", "--restart_odoo", help="Restart Odoo", action='store_true')
+
+    parser.add_argument('--start_psql', help='Start Psql', action='store_true')
+    parser.add_argument('--stop_psql', help='Stop Psql', action='store_true')
+    parser.add_argument("-rp", "--restart_psql", help="Restart Postgresql", action='store_true')
+
+    parser.add_argument("-cu", "--compose_up", help="Execute compose up", action='store_true')
+    parser.add_argument("-cd", "--compose_down", help="Execute compose down", action='store_true')
+    parser.add_argument('-da', '--disable_instance', help='Disable Instance', action='store_true')
+    parser.add_argument('-ea', '--enable_instance', help='Enable Instance', action='store_true')
+
+    parser.add_argument("-u", "--upgrade_module", help="Upgrade modules, db:module1,module2 ex: -u dbname1:web,mail", default=[])
+    parser.add_argument("-cll", "--clear_odoo_log", help="Clean Odoo Log", action='store_true')
+    parser.add_argument("-dn", "--deploy_nginx_site", action='store_true')
+
+    parsed_args = parser.parse_args()
+    return parsed_args
 
 
 if __name__ == '__main__':
-    install_config = get_install_config()
-    build_custom_dockerfile()
-    build_custom_odoo_config()
-    build_custom_docker_image()
-    build_custom_docker_compose_file()
-    clear_temp_files()
+    args = parse_args()
+
+    if args.build:
+        builder.build_odoo()
+    elif args.start_odoo:
+        start_odoo()
+    elif args.stop_odoo:
+        stop_odoo()
+    elif args.restart_odoo:
+        restart_odoo()
+    elif args.start_psql:
+        start_psql()
+    elif args.stop_psql:
+        stop_psql()
+    elif args.restart_psql:
+        restart_postgresql()
+    elif args.compose_up:
+        docker_compose_up()
+    elif args.compose_down:
+        docker_compose_down()
+    elif args.disable_instance:
+        disable_auto_start()
+    elif args.enable_instance:
+        enable_auto_start()
+    elif args.upgrade_module:
+        db_name = args.upgrade_module.split(':')[0]
+        modules = args.upgrade_module.split(':')[1].split(',')
+        upgrade_modules(modules, db_name)
+    elif args.clear_odoo_log:
+        clear_odoo_log()
+    elif args.deploy_nginx_site:
+        deploy_nginx_site()

@@ -1,11 +1,10 @@
-# This file only is used with docker compose
 FROM ubuntu:20.04
 
 # Generate locale C.UTF-8 for postgres and general locale data
 ENV LANG C.UTF-8
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install some deps, lessc and less-plugin-clean-css,
+# Install some deps, lessc and less-plugin-clean-css, wkhtmltopdf
 RUN apt-get update && apt-get install -y python3-dev libxml2-dev libxslt1-dev \
     libldap2-dev libsasl2-dev libtiff5-dev \
     libjpeg8-dev libopenjp2-7-dev zlib1g-dev \
@@ -37,7 +36,10 @@ RUN apt-get update && \
         python3-watchdog \
         python3-xlrd \
         python3-xlwt \
-        xz-utils
+        xz-utils \
+        wget
+RUN wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6-1/wkhtmltox_0.12.6-1.focal_amd64.deb \
+    && apt install -y ./wkhtmltox_0.12.6-1.focal_amd64.deb
 
 
 # install latest postgresql-client
@@ -55,8 +57,8 @@ RUN echo 'deb http://apt.postgresql.org/pub/repos/apt/ bullseye-pgdg main' > /et
     && rm -rf /var/lib/apt/lists/*
 
 ## install odoo instance dotd15
-ENV python_venv_path=/opt/python3.8-venv/odoo15/bin/python3.8
-WORKDIR /opt/odoo/{instance_name}
+ENV python_venv_path={python_venv_path}
+WORKDIR {odoo_installation_dir}
 
 
 # Install python venv and odoo requirements
@@ -64,11 +66,14 @@ RUN apt-get install -y python3.8-venv
 RUN python3.8 -m venv /opt/python3.8-venv/odoo15
 RUN $python_venv_path -m pip install setuptools wheel
 
-RUN $python_venv_path -m pip install -r https://raw.githubusercontent.com/odoo/odoo/15.0/requirements.txt
+COPY {host_odoo_requirements_path} /tmp/odoo_requirements.txt
+RUN $python_venv_path -m pip install -r /tmp/requirements.txt && rm /tmp/odoo_requirements.txt
 
 # install custom addons.
 {script_install_custom_addons}
 
+# create log file to link with ../containers_data/odoo.log
+RUN > {odoo_installation_dir}/odoo.log
 
 # Expose Odoo services
 EXPOSE 8069 8071 8072
@@ -79,7 +84,7 @@ ENV DB_PORT=5432
 ENV DB_USER='none'
 ENV DB_PASSWORD='none'
 ENV odoo_config_path='none'
-ENV odoo_bin_path=/opt/odoo/odoo15/odoo-bin
-ENV odoo_config_path=/opt/odoo/odoo.conf
+ENV odoo_bin_path={odoo_installation_dir}/odoo15/odoo-bin
+ENV odoo_config_path={odoo_installation_dir}/odoo.conf
 
 CMD $python_venv_path $odoo_bin_path -c $odoo_config_path --db_host=$DB_HOST --db_port=$DB_PORT --db_password=$DB_PASSWORD --db_user=$DB_USER

@@ -4,14 +4,14 @@
     "/home/do/my-projects/odoo-15/dotd_addons_appstore15",
     "/home/do/my-projects/odoo-15/backend_theme_dotd_15"
   ],
-  "instance_name": "dotd15",
-  "instance_fqdn": "dotd15.vjp.pro",
-  "http_port_mapping": 9999,
-  "long_polling_port_mapping": 9998,
+  "instance_name": "dotd15compose",
+  "instance_fqdn": "dotd15compose.pro.max",
+  "http_port_mapping": "9999",
+  "long_polling_port_mapping": "9998",
   "container_odoo_config": {
     "admin_passwd": "admin",
     "csv_internal_sep": "",
-    "db_maxconn": 64,
+    "db_maxconn": 1000,
     "db_name": "False",
     "db_template": "template1",
     "dbfilter": ".*",
@@ -22,11 +22,11 @@
     "limit_request": 8192,
     "limit_time_cpu": 600,
     "limit_time_real": 1200,
+    "server_wide_modules": "web,base",
     "list_db": "True",
     "log_db": "False",
     "log_handler": "[':INFO']",
     "log_level": "info",
-    "logfile": "None",
     "max_cron_threads": 2,
     "osv_memory_count_limit": "False",
     "smtp_password": "False",
@@ -37,10 +37,7 @@
     "workers": 0,
     "xmlrpc": "True",
     "xmlrpc_interface": "",
-    "xmlrpc_port": 8069,
     "xmlrpcs": "True",
-    "xmlrpcs_interface": "",
-    "xmlrpcs_port": 8071,
-    "http_port": 8069
+    "xmlrpcs_interface": ""
   }
 }
